@@ -124,20 +124,22 @@ class VagrantWrapper(object):
         if vm_name == None: 
             vm_name = DEFAULT_VM_NAME
         
-        d = self._get_instance(vm_name)
-         
-        if box_name != None:
-            d['box_name'] = box_name
-        else:
+        if box_name == None:
             raise Exception("You must specify a box name for Vagrant.")
-        
         if box_path != None: self.prepare_box(box_name, box_path)
         
-        # Save our changes and run
-        self._instances()[vm_name] = d    
-        self._save_state()
-        self._write_vagrantfile()
-        self.vg.up(False, vm_name)
+        
+        for c in range(count):
+            
+            d = self._get_instance(vm_name,c)
+            d['box_name'] = box_name        
+        
+        
+            # Save our changes and run
+            self._instances()[vm_name][c] = d    
+            self._save_state()
+            self._write_vagrantfile()
+            self.vg.up(False, vm_name)
             
         ad = self._build_instance_array_for_ansible(vm_name)
         return ad
@@ -201,7 +203,7 @@ class VagrantWrapper(object):
 #
     def _instances(self): return self.vg_data['instances']
     
-    def _get_instance(self, vm_name):
+    def _get_instances(self, vm_name):
     
         instances = self._instances()
         if instances.has_key(vm_name):
@@ -209,11 +211,11 @@ class VagrantWrapper(object):
     
         # otheriwse create one afresh
         d = dict()
-        n = len(instances.keys())+1
-        d['n'] = n
+        #n = len(instances.keys())+1
+        d['n'] = num_inst
         d['name'] = vm_name
         d['internal_ip'] = VAGRANT_INT_IP % (255-n)
-        return d
+        return [d]
             
                  
     #
