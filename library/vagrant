@@ -1,0 +1,399 @@
+#!/usr/bin/env python -tt
+# This file is part of Ansible
+#
+# Ansible is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Ansible is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
+
+DOCUMENTATION = '''
+---
+module: vagrant
+short_description: create a local instance via vagrant
+description:
+     - creates VM instances via vagrant and optionally waits for it to be 'running'. This module has a dependency on python-vagrant.
+version_added: "100.0"
+options:
+  cmd:
+    description:
+      - vagrant subcommand to execute. Can be "up," "status," "config," "ssh," "halt," "destroy" or "clear."
+    required: true
+    default: null
+    aliases: ['command'] 
+  box_name:
+    description:
+      - vagrant boxed image to start
+    required: false
+    default: null
+    aliases: ['image']
+  box_path:
+    description:
+      - path to vagrant boxed image to start
+    required: false
+    default: null
+    aliases: []
+  vm_name:
+    description:
+      - name to give an associated VM
+    required: false
+    default: null
+    aliases: [] 
+  count:
+    description:
+      - number of instances to launch
+    required: False
+    default: 1
+    aliases: []
+    
+  
+examples:
+   - code: 'local_action: vagrant cmd=up box_name=lucid32 vm_name=webserver'
+     description: 
+requirements: [ "vagrant" ]
+author: Rob Parrott
+'''
+
+VAGRANT_FILE = "./Vagrantfile"
+VAGRANT_DICT_FILE = "./Vagrantfile.json"
+
+VAGRANT_FILE_HEAD = "Vagrant::Config.run do |config|\n"
+VAGRANT_FILE_BOX_NAME = "  config.vm.box = \"%s\"\n"
+VAGRANT_FILE_VM_STANZA = """
+  config.vm.define :%s do |%s_config|
+    %s_config.vm.network :hostonly, "%s"
+    %s_config.vm.host_name = "%s"
+    %s_config.vm.box = "%s"
+  end
+"""
+VAGRANT_FILE_TAIL = "\nend\n"
+
+# If this is already a network on your machine, this may fail ... change it here.
+VAGRANT_INT_IP = "192.168.179.%s"
+
+DEFAULT_VM_NAME = "ansible"
+
+import sys
+import subprocess
+#import time
+import os.path
+import json
+
+try:
+    import vagrant
+except ImportError:
+    print "failed=True msg='python-vagrant required for this module'"
+    sys.exit(1)
+
+class VagrantWrapper(object):
+
+    def __init__(self):
+
+        '''
+        Wrapper around the python-vagrant module for use with ansible
+        '''
+        
+        # Initialize vagrant and state files
+        self.vg = vagrant.Vagrant()
+        self._load_state()
+        self._write_vagrantfile()
+        self._save_state()
+        self.instances = {}
+        
+    def prepare_box(self, box_name, box_path):
+        """
+        Given a specified name and URL, import a Vagrant "box" for use.
+        """
+        if box_name == None:
+            raise Exception("You must specify a box_name with a box_path for vagrant.")
+        boxes = self.vg.box_list()
+        if not box_name in boxes:
+            self.vg.box_add(box_name, box_path)
+             
+    def up(self, box_name, vm_name=None, box_path=None):    
+        """
+        Fire up a given VM and name it, using vagrant's multi-VM mode.
+        """
+        if vm_name == None: 
+            vm_name = DEFAULT_VM_NAME
+        
+        d = self._get_instance(vm_name)
+         
+        if box_name != None:
+            d['box_name'] = box_name
+        else:
+            raise Exception("You must specify a box name for Vagrant.")
+        
+        if box_path != None: self.prepare_box(box_name, box_path)
+        
+        # Save our changes and run
+        self._instances()[vm_name] = d    
+        self._save_state()
+        self._write_vagrantfile()
+        self.vg.up(False, vm_name)
+            
+        ad = self._build_instance_array_for_ansible(vm_name)
+        return ad
+    
+    def status(self, vm_name):
+        """
+        Return the run status of the VM instance.
+        """
+        return self.vg.status(vm_name)
+            
+    def config(self,vm_name):
+        """
+        Return info on SSH for the running instance.
+        """
+        
+        cnf = self.vg.conf(None, vm_name)
+        return cnf
+
+    def halt(self, vm_name = None):
+        """
+        Shuts down a vm_name or all VMs.
+        """
+        vm_names = []
+        if vm_name != None: vm_names = [vm_name]
+        else:
+            vm_names = self._instances().keys()
+            
+            
+        for n in vm_names:
+            if self.vg.status(n) == 'running':
+                self.vg.halt(n)
+            
+            
+    def destroy(self, vm_name=None):
+        """
+        Halt and remove data for a VM, or all VMs.
+        """
+        self.vg.destroy(vm_name)
+        if vm_name != None:
+            self._instances().pop(vm_name)
+        else:
+            self.vg_data['instances'] = {}
+            
+        self._save_state()
+        self._write_vagrantfile()
+        
+    def clear(self, vm_name=None):
+        """
+        Halt and remove data for a VM, or all VMs. Also clear all state data
+        """
+        self.vg.destroy(vm_name)
+
+        if os.path.isfile(VAGRANT_FILE):
+            os.remove(VAGRANT_FILE)
+        if os.path.isfile(VAGRANT_DICT_FILE):
+            os.remove(VAGRANT_DICT_FILE)            
+
+                   
+#
+# Helper Methods
+#
+    def _instances(self): return self.vg_data['instances']
+    
+    def _get_instance(self, vm_name):
+    
+        instances = self._instances()
+        if instances.has_key(vm_name):
+            return instances[vm_name]
+    
+        # otheriwse create one afresh
+        d = dict()
+        n = len(instances.keys())+1
+        d['n'] = n
+        d['name'] = vm_name
+        d['internal_ip'] = VAGRANT_INT_IP % (255-n)
+        return d
+            
+                 
+    #
+    # Manage a JSON representation of vagrantfile for statefulness across invocations. 
+    #
+    def _load_state(self):
+        self.vg_data = dict(num_inst=0, instances = {})
+        if os.path.isfile(VAGRANT_DICT_FILE):
+            json_file=open(VAGRANT_DICT_FILE)
+            self.vg_data = json.load(json_file)
+            json_file.close()
+
+    def _state_as_string(self,d):
+        from StringIO import StringIO
+        io = StringIO()
+        json.dump(self.vg_data, io)
+        return io.getvalue()
+
+    def _save_state(self):
+        json_file=open(VAGRANT_DICT_FILE, 'w')
+        json.dump(self.vg_data,json_file, sort_keys=True, indent=4, separators=(',', ': '))
+        json_file.close()
+      
+    #
+    # Translate the state dictionary into the Vagrantfile
+    #    
+    def _write_vagrantfile(self):
+
+        vfile = open(VAGRANT_FILE, 'w')
+        vfile.write(VAGRANT_FILE_HEAD)
+
+        instances = self._instances()
+        for name in instances.keys():
+            d  = instances[name]
+            ip = d['internal_ip']
+            box_name = d['box_name']
+            vfile.write(VAGRANT_FILE_VM_STANZA % 
+                       (name, name, name, ip, name, name, name, box_name) )
+  
+        vfile.write(VAGRANT_FILE_TAIL)
+        vfile.close()
+        
+    #
+    # To be returned to ansible with info about instances
+    #        
+    def _build_instance_array_for_ansible(self, vmname=None):
+    
+        vm_names = []
+        instances = self._instances()
+        if vmname != None:
+            vm_names = [vmname]
+        else:
+            vm_names = instances.keys()
+        
+        ans_instances = []   
+        for vm_name in vm_names:       
+            cnf = self.vg.conf(None, vm_name) 
+            vg_data = instances[vm_name]
+            if cnf != None:
+                d = {
+                    'name' : vm_name,
+                    'id': cnf['Host'],
+                    'public_ip': cnf['HostName'],
+                    'internal_ip': vg_data['internal_ip'],
+                    'public_dns_name': cnf['HostName'],
+                    'port' : cnf['Port'],
+                    'username' : cnf['User'],
+                    'key' : cnf['IdentityFile'],
+                    'status' : self.vg.status()           
+                    }
+                ans_instances.append(d)
+
+        return ans_instances
+         
+#--------
+# MAIN
+#--------
+def main():
+    
+    module = AnsibleModule(
+        argument_spec = dict(
+            cmd=dict(required=True, aliases = ['command']),
+            box_name=dict(required=False, aliases = ['image']),
+            box_path=dict(),
+            vm_name=dict(),
+            count = dict(default='1'), 
+       )
+   )
+    
+    cmd = module.params.get('cmd')
+    box_name = module.params.get('box_name')
+    box_path = module.params.get('box_path')
+    vm_name = module.params.get('vm_name')
+    if vm_name != None: 
+        vm_name = vm_name.lower()
+    count = module.params.get('count') 
+
+    # Initialize vagrant
+    vg = VagrantWrapper()
+    
+    #
+    # Main command tree
+    #
+    try:
+        if cmd == 'up':
+            
+            insts = vg.up(box_name, vm_name, box_path)
+            module.exit_json(changed = True, instances = insts)
+
+        elif cmd == 'status':
+
+#            if vm_name == None:
+#                module.fail_json(msg = "Error: you must specify a vm_name when calling status." )
+                
+            result = vg.status(vm_name)
+            module.exit_json(changed = False, status = result)
+
+        elif cmd == "config" or cmd == "conf":
+            
+            if vm_name == None:
+                module.fail_json(msg = "Error: you must specify a vm_name when calling config." )
+            cnf = vg.config(vm_name)
+            module.exit_json(changed = False, config = cnf)
+
+        elif cmd == 'ssh':
+            
+            if vm_name == None:
+                module.fail_json(msg = "Error: you must specify a vm_name when calling ssh." )             
+                            
+            cnf = vg.config(vm_name)
+            sshcmd = "ssh -i %s -p %s %s@%s" % (cnf["IdentityFile"], cnf["Port"], cnf["User"], cnf["HostName"])
+            sshmsg = "Execute the command \"vagrant ssh %s\"" % (vm_name)
+            module.exit_json(changed = False, msg = sshmsg, SshCommand = sshcmd)
+
+        elif cmd == "load_key":
+            
+            if vm_name == None:
+                module.fail_json(msg = "Error: you must specify a vm_name when calling load_key." )             
+                            
+            cnf = vg.config(vm_name)
+            keyfile=cnf["IdentityFile"]
+            
+            # Get loaded keys ...
+            loaded_keys = subprocess.check_output(["ssh-add", "-l"])
+            module.exit_json(changed = True, msg = loaded_keys)
+            
+            
+            subprocess.call(["ssh-add", keyfile])
+            
+            module.exit_json(changed = True, msg = sshmsg, SshCommand = sshcmd)
+            
+        elif cmd == 'halt':
+
+            vg.halt(vm_name)
+            module.exit_json(changed = True)
+
+        elif cmd == 'destroy':
+
+            vg.destroy(vm_name)    
+            module.exit_json(changed = True)
+            
+        elif cmd == 'clear':
+            
+            vg.clear()          
+            module.exit_json(changed = True)
+            
+        else:
+            
+            module.fail_json(msg = "Unknown vagrant subcommand: \"%s\"." % (cmd))
+            
+    except subprocess.CalledProcessError as e:     
+        module.fail_json(msg = "Vagrant command failed: %s." % (e))
+#    except Exception as e:
+#        module.fail_json(msg = e.__str__())
+    module.exit_json(status = "success")
+  
+
+    
+
+# this is magic, see lib/ansible/module_common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+
+main()
