@@ -87,7 +87,16 @@ Lastly, we can shutdown and clear out all records with the "clear" subcommand:
          
 Playbooks allow you to start up instances in vagrant dynamically, 
 add them to the inventory and then run "plays" on those newly created instances 
-from a single command. Here's an example playbook:
+from a single command. 
+
+Note: when playing around with builds using vagrant, it's useful to clear out your Vagrantfile 
+and VMs before running a playbook. The following is the equivalent of a "make clean" :
+
+    ansible all -i hosts -c local -m vagrant -a "cmd=clear"
+    
+(it's kinda fun to watch the VirtualBox manager window, and see the instances shutdown and disappear like good little vms :-> )
+    
+Here's an example playbook:
 
     ---
 	#
