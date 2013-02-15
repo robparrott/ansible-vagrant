@@ -89,56 +89,56 @@ Playbooks allow you to start up instances in vagrant dynamically,
 add them to the inventory and then run "plays" on those newly created instances 
 from a single command. Here's an example playbook:
 
----
-#
-# This section fires up a guest dynamically using vagrant,
-#  registers it in the inventory under 
-#  the group "vagrant_hosts"
-# then logs in and pokes around.
-#
-- hosts:
-  - localhost
-  connection: local
-  gather_facts: False
-
-  vars:
-    box_name: lucid32
-    vm_name: frank
-
-  tasks:
-  - name: Fire up a fresh new vagrant instance to log into
-    local_action: vagrant
-        command=up
-        box_name=${box_name}
-        vm_name=${vm_name}
-    register: vagrant
-    
-  - name: Remind us about the vagrnat private key ...
-    action: debug 
-            msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
-  
-  - name: Capture that host's contact info into the inventory
-    action: add_host hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' groupname=vagrant_hosts
-    
-#
-# Run on the vagrant_hosts group, checking that we have basic ssh access...
-#    
-- hosts:
-  - vagrant_hosts
-  user: vagrant
-  
-  gather_facts: False
-             
-  tasks:
-  
-  - name: Let's see if we can login
-    action: command uname -a
-    
-  - name: Let's see all the ansible vars about vagrant hosts...
-    action: setup
-  
-  - name: Generate a ./blah_ansible.vars to check for hostvars
-    action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
+    ---
+	#
+	# This section fires up a guest dynamically using vagrant,
+	#  registers it in the inventory under 
+	#  the group "vagrant_hosts"
+	# then logs in and pokes around.
+	#
+	- hosts:
+	  - localhost
+	  connection: local
+	  gather_facts: False
+	
+	  vars:
+	    box_name: lucid32
+	    vm_name: frank
+	
+	  tasks:
+	  - name: Fire up a fresh new vagrant instance to log into
+	    local_action: vagrant
+	        command=up
+	        box_name=${box_name}
+	        vm_name=${vm_name}
+	    register: vagrant
+	    
+	  - name: Remind us about the vagrnat private key ...
+	    action: debug 
+	            msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
+	  
+	  - name: Capture that host's contact info into the inventory
+	    action: add_host hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' groupname=vagrant_hosts
+	    
+	#
+	# Run on the vagrant_hosts group, checking that we have basic ssh access...
+	#    
+	- hosts:
+	  - vagrant_hosts
+	  user: vagrant
+	  
+	  gather_facts: False
+	             
+	  tasks:
+	  
+	  - name: Let's see if we can login
+	    action: command uname -a
+	    
+	  - name: Let's see all the ansible vars about vagrant hosts...
+	    action: setup
+	  
+	  - name: Generate a ./blah_ansible.vars to check for hostvars
+	    action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
     
       
       
