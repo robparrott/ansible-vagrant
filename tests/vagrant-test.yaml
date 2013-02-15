@@ -12,6 +12,7 @@
 
   vars:
     box_name: lucid32
+    box_path: http://files.vagrantup.com/lucid32.box
     vm_name: frank
 
   tasks:
@@ -19,15 +20,21 @@
     local_action: vagrant
         command=up
         box_name=${box_name}
+        box_path=${box_path}
         vm_name=${vm_name}
+        count=3
     register: vagrant
     
-  - name: Remind us about the vagrnat private key ...
+  - name: Remind us about the vagrant private key ...
     action: debug 
             msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
   
   - name: Capture that host's contact info into the inventory
-    action: add_host hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' groupname=vagrant_hosts
+    action: add_host 
+            hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' 
+            ansible_ssh_port='${vagrant.instances[0].port}' 
+            ansible_ssh_host='${vagrant.instances[0].public_ip}'
+            groupname=vagrant_hosts
     
 #
 # Run on the vagrant_hosts group, checking that we have basic ssh access...
