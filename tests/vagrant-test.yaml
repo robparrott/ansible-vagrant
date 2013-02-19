@@ -16,7 +16,7 @@
     vm_name: frank
 
   tasks:
-  - name: Fire up a fresh new vagrant instance to log into
+  - name: Fire up a set of vagrant instances to log into
     local_action: vagrant
         command=up
         box_name=${box_name}
@@ -29,12 +29,18 @@
     action: debug 
             msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
   
-  - name: Capture that host's contact info into the inventory
+  - name: Host info ...
+    action: debug
+            msg='${item.public_ip}:${item.port}' 
+    with_items: ${vagrant.instances}
+      
+  - name: Capture that host's contact info into the inventory (the hostname is a unique ID from Vagrant ... )
     action: add_host 
-            hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' 
-            ansible_ssh_port='${vagrant.instances[0].port}' 
-            ansible_ssh_host='${vagrant.instances[0].public_ip}'
+            hostname='${item.vagrant_name}' 
+            ansible_ssh_port='${item.port}' 
+            ansible_ssh_host='${item.public_ip}'
             groupname=vagrant_hosts
+    with_items: ${vagrant.instances}
     
 #
 # Run on the vagrant_hosts group, checking that we have basic ssh access...

@@ -117,7 +117,7 @@ class VagrantWrapper(object):
         if not box_name in boxes:
             self.vg.box_add(box_name, box_path)
              
-    def up(self, box_name, vm_name=None, box_path=None):    
+    def up(self, box_name, vm_name=None, count=1, box_path=None):    
         """
         Fire up a given VM and name it, using vagrant's multi-VM mode.
         """
@@ -127,38 +127,80 @@ class VagrantWrapper(object):
         if box_name == None:
             raise Exception("You must specify a box name for Vagrant.")
         if box_path != None: self.prepare_box(box_name, box_path)
-        
-        
-        for c in range(count):
+
+        for c in range(int(count)):
             
             d = self._get_instance(vm_name,c)
             d['box_name'] = box_name        
         
-        
             # Save our changes and run
-            self._instances()[vm_name][c] = d    
+            inst_array = self._instances()[vm_name]
+            inst_array[c] = d    
             self._save_state()
             self._write_vagrantfile()
-            self.vg.up(False, vm_name)
+            self.vg.up(False, d['vagrant_name'])
             
         ad = self._build_instance_array_for_ansible(vm_name)
         return ad
     
-    def status(self, vm_name):
+    def status(self, vm_name = None, n = -1):
         """
-        Return the run status of the VM instance.
+        Return the run status of the VM instance. If no instance N is given, returns first instance.
         """
-        return self.vg.status(vm_name)
+        vm_names = []
+        if vm_name != None: vm_names = [vm_name]
+        else:
+            vm_names = self._instances().keys()
+        
+        statuses = {}
+        for vmn in vm_names:
+            stat_array = []
+            instance_array = self.vg_data['instances'][vmn]
+            if n >= 0:
+                instance_array = [ self._get_instance(vmn,n) ]
+            for inst in instance_array:
+                vgn = inst['vagrant_name']
+                stat_array.append(self.vg.status(vgn))
+            statuses[vmn] = stat_array     
+                    
+        return statuses
+        #if vm_name == None:
+        #    raise Exception("You must specify a vm_name for vagrant when requesting the status of an instance.")
+        
+        #inst = self._get_instance(vm_name, n)
+        #stat = self.vg.status(inst['vagrant_name'])
+
+        return statuses
             
-    def config(self,vm_name):
+    def config(self, vm_name, n = -1):
         """
         Return info on SSH for the running instance.
         """
+        vm_names = []
+        if vm_name != None: vm_names = [vm_name]
+        else:
+            vm_names = self._instances().keys()
         
-        cnf = self.vg.conf(None, vm_name)
-        return cnf
+        configs = {}
+        for vmn in vm_names:
+            conf_array = []
+            instance_array = self.vg_data['instances'][vmn]
+            if n >= 0:
+                instance_array = [ self._get_instance(vmn,n) ]
+            for inst in instance_array:
+                cnf = self.vg.conf(None, inst['vagrant_name'])
+                conf_array.append(cnf)
+            configs[vmn] = conf_array     
+                            
+        return configs
+#        if vm_name == None:
+#            raise Exception("You must specify a vm_name for vagrant when requesting the config of an instance.")
+        
+#        inst = self._get_instance(vm_name, n)
+#        cnf = self.vg.conf(None, inst['vagrant_name'])
+#        return cnf
 
-    def halt(self, vm_name = None):
+    def halt(self, vm_name = None, n=-1):
         """
         Shuts down a vm_name or all VMs.
         """
@@ -166,17 +208,28 @@ class VagrantWrapper(object):
         if vm_name != None: vm_names = [vm_name]
         else:
             vm_names = self._instances().keys()
+        
+        statuses = {}
+        for vmn in vm_names:
+            stat_array = []
+            instance_array = self.vg_data['instances'][vmn]
+            if n >= 0:
+                instance_array = [ self.vg_data['instances'][vmn][n] ]
+            for inst in instance_array:
+                vgn = inst['vagrant_name']
+                if self.vg.status(vgn) == 'running':
+                    self.vg.halt(vgn) 
+                stat_array.append(self.vg.status(vgn))
+            statuses[vmn] = stat_array
+        return statuses         
             
-            
-        for n in vm_names:
-            if self.vg.status(n) == 'running':
-                self.vg.halt(n)
-            
-            
-    def destroy(self, vm_name=None):
+    def destroy(self, vm_name=None, n=-1):
         """
         Halt and remove data for a VM, or all VMs.
         """
+        
+        self.halt(vm_name, n)       
+    
         self.vg.destroy(vm_name)
         if vm_name != None:
             self._instances().pop(vm_name)
@@ -203,19 +256,34 @@ class VagrantWrapper(object):
 #
     def _instances(self): return self.vg_data['instances']
     
-    def _get_instances(self, vm_name):
+    def _get_instance(self, vm_name, n):
     
         instances = self._instances()
+
+        inst_array = []        
         if instances.has_key(vm_name):
-            return instances[vm_name]
-    
-        # otheriwse create one afresh
+            inst_array = instances[vm_name]
+            
+        if len(inst_array) > n: return inst_array[n]
+        
+        # 
+        # otherwise create one afresh
+        #
+        
         d = dict()
+        N = self.vg_data['num_inst']+1
         #n = len(instances.keys())+1
-        d['n'] = num_inst
+        d['n'] = n
+        d['N'] = N
         d['name'] = vm_name
-        d['internal_ip'] = VAGRANT_INT_IP % (255-n)
-        return [d]
+        d['vagrant_name'] = "%s%d" % (vm_name,n)
+        d['internal_ip'] = VAGRANT_INT_IP % (255-N)
+        self.vg_data['num_inst'] = N
+        
+        inst_array.append(d)
+        self._instances()[vm_name] = inst_array
+        
+        return d
             
                  
     #
@@ -248,12 +316,15 @@ class VagrantWrapper(object):
         vfile.write(VAGRANT_FILE_HEAD)
 
         instances = self._instances()
-        for name in instances.keys():
-            d  = instances[name]
-            ip = d['internal_ip']
-            box_name = d['box_name']
-            vfile.write(VAGRANT_FILE_VM_STANZA % 
-                       (name, name, name, ip, name, name, name, box_name) )
+        for vm_name in instances.keys():
+            inst_array = instances[vm_name]
+            for c in range(len(inst_array)):
+                d = inst_array[c] 
+                name = d['vagrant_name']
+                ip = d['internal_ip']
+                box_name = d['box_name']
+                vfile.write(VAGRANT_FILE_VM_STANZA % 
+                            (name, name, name, ip, name, name, name, box_name) )
   
         vfile.write(VAGRANT_FILE_TAIL)
         vfile.close()
@@ -271,22 +342,25 @@ class VagrantWrapper(object):
             vm_names = instances.keys()
         
         ans_instances = []   
-        for vm_name in vm_names:       
-            cnf = self.vg.conf(None, vm_name) 
-            vg_data = instances[vm_name]
-            if cnf != None:
-                d = {
-                    'name' : vm_name,
-                    'id': cnf['Host'],
-                    'public_ip': cnf['HostName'],
-                    'internal_ip': vg_data['internal_ip'],
-                    'public_dns_name': cnf['HostName'],
-                    'port' : cnf['Port'],
-                    'username' : cnf['User'],
-                    'key' : cnf['IdentityFile'],
-                    'status' : self.vg.status()           
-                    }
-                ans_instances.append(d)
+        for vm_name in vm_names:
+            for inst in instances[vm_name]:
+                vagrant_name = inst['vagrant_name']
+                cnf = self.vg.conf(None,vagrant_name) 
+                vg_data = instances[vm_name]
+                if cnf != None:
+                    d = {
+                         'name' : vm_name,
+                         'vagrant_name' : vagrant_name, 
+                         'id': cnf['Host'],
+                         'public_ip': cnf['HostName'],
+                         'internal_ip': inst['internal_ip'],
+                         'public_dns_name': cnf['HostName'],
+                         'port' : cnf['Port'],
+                         'username' : cnf['User'],
+                         'key' : cnf['IdentityFile'],
+                         'status' : self.vg.status(vagrant_name)           
+                         }
+                    ans_instances.append(d)
 
         return ans_instances
          
@@ -322,7 +396,8 @@ def main():
     try:
         if cmd == 'up':
             
-            insts = vg.up(box_name, vm_name, box_path)
+            if count == None: count = 1
+            insts = vg.up(box_name, vm_name, count, box_path)
             module.exit_json(changed = True, instances = insts)
 
         elif cmd == 'status':
@@ -370,7 +445,7 @@ def main():
         elif cmd == 'halt':
 
             vg.halt(vm_name)
-            module.exit_json(changed = True)
+            module.exit_json(changed = True, status = vg.status(vm_name))
 
         elif cmd == 'destroy':
 

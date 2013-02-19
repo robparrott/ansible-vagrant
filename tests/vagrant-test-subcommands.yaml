@@ -22,23 +22,31 @@
         box_name=centos6
     register: vagrant
     
-  - name: Fire up another vagrant instance
+  - name: Fire up another couple vagrant instances
     local_action: vagrant
         command=up
         box_name=lucid32
         vm_name=fred
+        count=2
     register: vagrant
         
-  - name: Report the status of fred
+  - name: Report the status of fred (with 2 instances)
     local_action: vagrant
         command=status
         vm_name=fred
     register: vagrant    
         
-  - name: Report the status of everyone
+  - name: Report the status of everyone (three total ...)
     local_action: vagrant
         command=status
     register: vagrant 
+    
+    
+  - name: Report the configuration info of fred
+    local_action: vagrant
+        command=config
+        vm_name=fred
+    register: vagrant    
     
   - name: Stop one
     local_action: vagrant

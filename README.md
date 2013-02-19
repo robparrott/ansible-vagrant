@@ -29,7 +29,7 @@ To run the tests from the repository, cd into "./test" and run
 
     ansible-playbook -v -i hosts vagrant-test.yaml
     
-## Getting started with ansible-vagrant: command line
+## Getting started with ansible-vagrant
 
 ### Command Line Use
 (Note that the following example assumes you know something about ansible and its syntax and conventions)
@@ -150,7 +150,146 @@ Here's an example playbook:
 	    action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
     
       
-      
+## Methods and Data Structures      
+
+Here, let's talk about the data returned by the various commands. 
+
+These data structures take into account that there may be multiple named sets of isntances, and multiple instances within each "up invocation"
+
+### UP
+
+The up subcommand
+
+  ansible -m vagrant -a "command=up box_name=lucid32 vm_name=fred count=2
+  
+asks vagrant to start up two identical instances of the "lucid32" box, and name then "fred." When successful produces output of this type:
+
+  {
+    "changed": true, 
+    "instances": [
+      {
+        "id": "fred0", 
+        "internal_ip": "192.168.179.253", 
+        "key": "/Users/username/.vagrant.d/insecure_private_key", 
+        "name": "fred", 
+        "port": "2200", 
+        "public_dns_name": "127.0.0.1", 
+        "public_ip": "127.0.0.1", 
+        "status": "running", 
+        "username": "vagrant", 
+        "vagrant_name": "fred0"
+      }, 
+      {
+        "id": "fred1", 
+        "internal_ip": "192.168.179.252", 
+        "key": "/Users/username/.vagrant.d/insecure_private_key", 
+        "name": "fred", 
+        "port": "2201", 
+        "public_dns_name": 
+        "127.0.0.1", 
+        "public_ip": "127.0.0.1", 
+        "status": "running", 
+        "username": "vagrant", 
+        "vagrant_name": "fred1"
+      }
+    ]
+  }
+
+### Status
+
+Subcommand invocation
+
+  ansible -m vagrant -a "command=status vm_name=fred"
+
+reports back with a dictionary of vm_names (only one in the case) with an array of status strings:
+
+  {
+    "changed": false, 
+    "status": {
+      "fred": [
+         "running", 
+         "running"
+       ]
+     }
+   }
+
+if we don't specify a vm_name, we get the status of all instances:
+
+  {
+    "changed": false, 
+    "status": {
+      "ansible": ["running"], 
+      "fred": ["running", "running"]
+    }
+  }
+
+### Config
+
+Subcommand invocation for config data is similar ot status, but with much values returned:
+
+  ansible -m vagrant -a "command=config vm_name=fred"
+
+reports back with a dictionary of vm_names (only one in the case) with an array of dicts about the SSH configuration of the hosts:
+
+   {
+     "changed": false, 
+     "config": {
+       "fred": [
+         {
+           "Host": "fred0", 
+           "HostName": "127.0.0.1", 
+           "IdentitiesOnly": "yes", 
+           "IdentityFile": "/Users/username/.vagrant.d/insecure_private_key", 
+           "PasswordAuthentication": "no", 
+           "Port": "2200", 
+           "StrictHostKeyChecking": "no", 
+           "User": "vagrant", 
+           "UserKnownHostsFile": "/dev/null"
+         }, 
+         {
+           "Host": "fred1", 
+           "HostName": "127.0.0.1", 
+           "IdentitiesOnly": "yes", 
+           "IdentityFile": "/Users/username/.vagrant.d/insecure_private_key", 
+           "PasswordAuthentication": "no", 
+           "Port": "2201", 
+           "StrictHostKeyChecking": "no", 
+           "User": "vagrant", 
+           "UserKnownHostsFile": "/dev/null"
+         }
+       ]
+     }
+   }
+
+
+### Halt
+
+When halting an instance, ort set of isntances, as in 
+
+    ansible -m vagrant -a "command=halt vm_name=fred"
+    
+report back the resulting status
+
+  {
+    "changed": true, 
+    "status": {
+      "fred": [
+         "poweroff", 
+         "poweroff"
+       ]
+     }
+   }
+### Destroy
+
+### Clear
 
 ## LICENSE:
-Not yet ....
+Not yet ...
+
+
+
+
+
+
+
+.
