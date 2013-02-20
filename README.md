@@ -196,7 +196,7 @@ These data structures take into account that there may be multiple named sets of
 
 The up subcommand
 
-  ansible -m vagrant -a "command=up box_name=lucid32 vm_name=fred count=2
+    ansible -m vagrant -a "command=up box_name=lucid32 vm_name=fred count=2
   
 asks vagrant to start up two identical instances of the "lucid32" box, and name then "fred." When successful produces output of this type:
 
@@ -235,7 +235,7 @@ asks vagrant to start up two identical instances of the "lucid32" box, and name 
 
 Subcommand invocation
 
-  ansible -m vagrant -a "command=status vm_name=fred"
+    ansible -m vagrant -a "command=status vm_name=fred"
 
 reports back with a dictionary of vm_names (only one in the case) with an array of status strings:
 
@@ -263,7 +263,7 @@ if we don't specify a vm_name, we get the status of all instances:
 
 Subcommand invocation for config data is similar ot status, but with much values returned:
 
-  ansible -m vagrant -a "command=config vm_name=fred"
+    ansible -m vagrant -a "command=config vm_name=fred"
 
 reports back with a dictionary of vm_names (only one in the case) with an array of dicts about the SSH configuration of the hosts:
 
