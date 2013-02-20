@@ -3,3 +3,4 @@ Vagrantfile.json
 .vagrant
 .project
 .pydevproject
+.vagrant-lock.lock
