@@ -161,7 +161,7 @@ Here's an example playbook:
       vars:
         vm_name: frank
   
-      gather_facts: False
+      gather_facts: True
                
       tasks:
   
