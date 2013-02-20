@@ -108,82 +108,82 @@ and VMs before running a playbook. The following is the equivalent of a "make cl
     
 Here's an example playbook:
 
-  --- 
-  #
-  # This section fires up a set of instances dynamically using vagrant,
-  #  registers it in the inventory under 
-  #  the group "vagrant_hosts"
-  # then logs in and pokes around. 
-  #
-  - hosts:
-    - localhost
-    connection: local
-    gather_facts: False
+    --- 
+    #
+    # This section fires up a set of instances dynamically using vagrant,
+    #  registers it in the inventory under 
+    #  the group "vagrant_hosts"
+    # then logs in and pokes around. 
+    #
+    - hosts:
+      - localhost
+      connection: local
+      gather_facts: False
 
-    vars:
-      box_name: lucid32
-      box_path: http://files.vagrantup.com/lucid32.box
-      vm_name: frank
+      vars:
+        box_name: lucid32
+        box_path: http://files.vagrantup.com/lucid32.box
+        vm_name: frank
 
-    tasks:
-    - name: Fire up a set of vagrant instances to log into
-      local_action: vagrant
-          state=present
-          box_name=${box_name}
-          box_path=${box_path}
-          vm_name=${vm_name}
-          count=3
-      register: vagrant
-    
-    - name: Remind us about the vagrant private key ...
-      action: debug 
-              msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
-  
-    - name: Host info ...
-      action: debug
-              msg='${item.public_ip}${item.port}' 
-      with_items: ${vagrant.instances}
+      tasks:
+      - name: Fire up a set of vagrant instances to log into
+        local_action: vagrant
+            state=present
+            box_name=${box_name}
+            box_path=${box_path}
+            vm_name=${vm_name}
+            count=3
+        register: vagrant
       
-    - name: Capture that host's contact info into the inventory (the hostname is a unique ID from Vagrant ... )
-      action: add_host 
-              hostname='${item.vagrant_name}' 
-              ansible_ssh_port='${item.port}' 
-              ansible_ssh_host='${item.public_ip}'
-              groupname=vagrant_hosts
-      with_items: ${vagrant.instances}
-    
-  #
-  # Run on the vagrant_hosts group, checking that we have basic ssh access...
-  #    
-  - hosts:
-    - vagrant_hosts
-    user: vagrant
-    vars:
-      vm_name: frank
+      - name: Remind us about the vagrant private key ...
+        action: debug 
+                msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
   
-    gather_facts: False
-             
-    tasks:
-  
-    - name: Let's see if we can login
-      action: command uname -a
+      - name: Host info ...
+       action: debug
+                msg='${item.public_ip}${item.port}' 
+        with_items: ${vagrant.instances}
+      
+      - name: Capture that host's contact info into the inventory (the hostname is a unique ID from Vagrant ... )
+        action: add_host 
+                hostname='${item.vagrant_name}' 
+                ansible_ssh_port='${item.port}' 
+                ansible_ssh_host='${item.public_ip}'
+                groupname=vagrant_hosts
+        with_items: ${vagrant.instances}
     
-    - name: Let's see all the ansible vars about vagrant hosts...
-      action: setup
+    #
+    # Run on the vagrant_hosts group, checking that we have basic ssh access...
+    #    
+    - hosts:
+      - vagrant_hosts
+      user: vagrant
+      vars:
+        vm_name: frank
   
-    - name: Generate a ./blah_ansible.vars to check for hostvars
-      action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
+      gather_facts: False
+               
+      tasks:
+  
+      - name: Let's see if we can login
+        action: command uname -a
     
-  #    
-  # Shut them down 
-  #
-    - name: Now shut them down ...
-      local_action: vagrant 
-                    state=absent 
-                    vm_name='${vm_name}'
+      - name: Let's see all the ansible vars about vagrant hosts...
+        action: setup
+  
+      - name: Generate a ./blah_ansible.vars to check for hostvars
+        action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
+    
+    #    
+    # Shut them down 
+    #
+      - name: Now shut them down ...
+        local_action: vagrant 
+                      state=absent 
+                      vm_name='${vm_name}'
                   
-    - name: Now clear it out ...
-      local_action: vagrant clear
+      - name: Now clear it out ...
+        local_action: vagrant clear
     
       
 ## Methods and Data Structures      
