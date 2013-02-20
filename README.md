@@ -200,36 +200,36 @@ The up subcommand
   
 asks vagrant to start up two identical instances of the "lucid32" box, and name then "fred." When successful produces output of this type:
 
-  {
-    "changed": true, 
-    "instances": [
-      {
-        "id": "fred0", 
-        "internal_ip": "192.168.179.253", 
-        "key": "/Users/username/.vagrant.d/insecure_private_key", 
-        "name": "fred", 
-        "port": "2200", 
-        "public_dns_name": "127.0.0.1", 
-        "public_ip": "127.0.0.1", 
-        "status": "running", 
-        "username": "vagrant", 
-        "vagrant_name": "fred0"
-      }, 
-      {
-        "id": "fred1", 
-        "internal_ip": "192.168.179.252", 
-        "key": "/Users/username/.vagrant.d/insecure_private_key", 
-        "name": "fred", 
-        "port": "2201", 
-        "public_dns_name": 
-        "127.0.0.1", 
-        "public_ip": "127.0.0.1", 
-        "status": "running", 
-        "username": "vagrant", 
-        "vagrant_name": "fred1"
-      }
-    ]
-  }
+    {
+      "changed": true, 
+      "instances": [
+        {
+          "id": "fred0", 
+          "internal_ip": "192.168.179.253", 
+          "key": "/Users/username/.vagrant.d/insecure_private_key", 
+          "name": "fred", 
+          "port": "2200", 
+          "public_dns_name": "127.0.0.1", 
+          "public_ip": "127.0.0.1", 
+          "status": "running", 
+          "username": "vagrant", 
+          "vagrant_name": "fred0"
+        }, 
+        {
+          "id": "fred1", 
+          "internal_ip": "192.168.179.252", 
+          "key": "/Users/username/.vagrant.d/insecure_private_key", 
+          "name": "fred", 
+          "port": "2201", 
+          "public_dns_name": 
+          "127.0.0.1", 
+          "public_ip": "127.0.0.1", 
+          "status": "running", 
+          "username": "vagrant", 
+          "vagrant_name": "fred1"
+        }
+      ]
+    }
 
 ### Status
 
@@ -239,25 +239,25 @@ Subcommand invocation
 
 reports back with a dictionary of vm_names (only one in the case) with an array of status strings:
 
-  {
-    "changed": false, 
-    "status": {
-      "fred": [
-         "running", 
-         "running"
-       ]
+    {
+      "changed": false, 
+      "status": {
+        "fred": [
+           "running", 
+           "running"
+         ]
+       }
      }
-   }
 
 if we don't specify a vm_name, we get the status of all instances:
 
-  {
-    "changed": false, 
-    "status": {
-      "ansible": ["running"], 
-      "fred": ["running", "running"]
+    {
+      "changed": false, 
+      "status": {
+        "ansible": ["running"], 
+        "fred": ["running", "running"]
+      }
     }
-  }
 
 ### Config
 
@@ -267,7 +267,7 @@ Subcommand invocation for config data is similar ot status, but with much values
 
 reports back with a dictionary of vm_names (only one in the case) with an array of dicts about the SSH configuration of the hosts:
 
-   {
+    {
      "changed": false, 
      "config": {
        "fred": [
@@ -295,8 +295,7 @@ reports back with a dictionary of vm_names (only one in the case) with an array 
          }
        ]
      }
-   }
-
+    }
 
 ### Halt
 
@@ -306,15 +305,16 @@ When halting an instance, ort set of isntances, as in
     
 report back the resulting status
 
-  {
-    "changed": true, 
-    "status": {
-      "fred": [
-         "poweroff", 
-         "poweroff"
-       ]
-     }
-   }
+    {
+      "changed": true, 
+      "status": {
+        "fred": [
+           "poweroff", 
+           "poweroff"
+         ]
+       }
+    }
+    
 ### Destroy
 
 ### Clear
