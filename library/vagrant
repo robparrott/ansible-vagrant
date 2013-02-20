@@ -89,10 +89,10 @@ import subprocess
 import os.path
 import json
 
-#try:
-#    import lockfile
-#except ImportError:
-#    print "Python module lockfile is not installed. Falling back to using flock(), which will fail on Windows."
+try:
+    import lockfile
+except ImportError:
+    print "Python module lockfile is not installed. Falling back to using flock(), which will fail on Windows."
     
 try:
     import vagrant
