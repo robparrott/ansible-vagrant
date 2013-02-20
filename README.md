@@ -1,4 +1,4 @@
-ansible-vagrant
+	ansible-vagrant
 ===============
 
 A vagrant module for ansible, that lets you control vagrant VMs from an ansible playbook.
@@ -46,11 +46,17 @@ The target machine image is called a "box" under vagrant, and can be managed ahe
 
 or instead the path can be specified when you start the VM itself. We'll start up a standard VM with ansible-vagrant as follows: 
 
-    ansible all -i hosts -c local -m vagrant -a "cmd=up vm_name=myvm box_name=lucid64 box_path=http://files.vagrantup.com/lucid64.box"
+    ansible all -i hosts -c local -m vagrant -a "state=present vm_name=myvm box_name=lucid64 box_path=http://files.vagrantup.com/lucid64.box"
     
 This command will download and register the image as "lucid64," then start up the image and attribute 
 the name "myvm" to it. If you had left off the "vm_name" argument, the module will set the vm_name to "ansible" for you.
 
+The command is idempotent, so if the instances are currently running (and you haven't removed any auto-generated state files such as "Vagrantfile.json") then this command will not try to start already running instances.
+
+A more "command" equivalent would be:
+
+    ansible all -i hosts -c local -m vagrant -a "command=up vm_name=myvm box_name=lucid64 box_path=http://files.vagrantup.com/lucid64.box"
+    
 Note: names in vagrant have to be compatible with the ruby syntax used in Vagrantfiles, 
 so they can't use "-" or "_", and must start with a lowercase letter. *In the future, you can leave 
 off the "box_path" argument, as vagrant registers and caches the image locally.
@@ -82,6 +88,10 @@ This last command will halt and then remove the record if the machine had been r
 Lastly, we can shutdown and clear out all records with the "clear" subcommand:
 
     ansible all -i hosts -c local -m vagrant -a "cmd=clear"
+    
+Most correctly, we can insist that the state of the instances is "absent":
+
+    ansible all -i hosts -c local -m vagrant -a "state=absent vm_name=myvm"      
 
 ### Playbooks
          
@@ -98,56 +108,82 @@ and VMs before running a playbook. The following is the equivalent of a "make cl
     
 Here's an example playbook:
 
-    ---
-	#
-	# This section fires up a guest dynamically using vagrant,
-	#  registers it in the inventory under 
-	#  the group "vagrant_hosts"
-	# then logs in and pokes around.
-	#
-	- hosts:
-	  - localhost
-	  connection: local
-	  gather_facts: False
-	
-	  vars:
-	    box_name: lucid32
-	    vm_name: frank
-	
-	  tasks:
-	  - name: Fire up a fresh new vagrant instance to log into
-	    local_action: vagrant
-	        command=up
-	        box_name=${box_name}
-	        vm_name=${vm_name}
-	    register: vagrant
-	    
-	  - name: Remind us about the vagrnat private key ...
-	    action: debug 
-	            msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
-	  
-	  - name: Capture that host's contact info into the inventory
-	    action: add_host hostname='${vagrant.instances[0].public_ip}:${vagrant.instances[0].port}' groupname=vagrant_hosts
-	    
-	#
-	# Run on the vagrant_hosts group, checking that we have basic ssh access...
-	#    
-	- hosts:
-	  - vagrant_hosts
-	  user: vagrant
-	  
-	  gather_facts: False
-	             
-	  tasks:
-	  
-	  - name: Let's see if we can login
-	    action: command uname -a
-	    
-	  - name: Let's see all the ansible vars about vagrant hosts...
-	    action: setup
-	  
-	  - name: Generate a ./blah_ansible.vars to check for hostvars
-	    action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
+  --- 
+  #
+  # This section fires up a set of instances dynamically using vagrant,
+  #  registers it in the inventory under 
+  #  the group "vagrant_hosts"
+  # then logs in and pokes around. 
+  #
+  - hosts:
+    - localhost
+    connection: local
+    gather_facts: False
+
+    vars:
+      box_name: lucid32
+      box_path: http://files.vagrantup.com/lucid32.box
+      vm_name: frank
+
+    tasks:
+    - name: Fire up a set of vagrant instances to log into
+      local_action: vagrant
+          state=present
+          box_name=${box_name}
+          box_path=${box_path}
+          vm_name=${vm_name}
+          count=3
+      register: vagrant
+    
+    - name: Remind us about the vagrant private key ...
+      action: debug 
+              msg="Be sure to add the ssh private key for vagrant, here ... '${vagrant.instances[0].key}'."
+  
+    - name: Host info ...
+      action: debug
+              msg='${item.public_ip}${item.port}' 
+      with_items: ${vagrant.instances}
+      
+    - name: Capture that host's contact info into the inventory (the hostname is a unique ID from Vagrant ... )
+      action: add_host 
+              hostname='${item.vagrant_name}' 
+              ansible_ssh_port='${item.port}' 
+              ansible_ssh_host='${item.public_ip}'
+              groupname=vagrant_hosts
+      with_items: ${vagrant.instances}
+    
+  #
+  # Run on the vagrant_hosts group, checking that we have basic ssh access...
+  #    
+  - hosts:
+    - vagrant_hosts
+    user: vagrant
+    vars:
+      vm_name: frank
+  
+    gather_facts: False
+             
+    tasks:
+  
+    - name: Let's see if we can login
+      action: command uname -a
+    
+    - name: Let's see all the ansible vars about vagrant hosts...
+      action: setup
+  
+    - name: Generate a ./blah_ansible.vars to check for hostvars
+      action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
+    
+  #    
+  # Shut them down 
+  #
+    - name: Now shut them down ...
+      local_action: vagrant 
+                    state=absent 
+                    vm_name='${vm_name}'
+                  
+    - name: Now clear it out ...
+      local_action: vagrant clear
     
       
 ## Methods and Data Structures      

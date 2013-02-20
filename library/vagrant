@@ -22,10 +22,12 @@ description:
      - creates VM instances via vagrant and optionally waits for it to be 'running'. This module has a dependency on python-vagrant.
 version_added: "100.0"
 options:
+  state:
+    description: Should the VMs be "present" or "absent."
   cmd:
     description:
-      - vagrant subcommand to execute. Can be "up," "status," "config," "ssh," "halt," "destroy" or "clear."
-    required: true
+      - vagrant subcommand to execute. Can be "up," "status," "config," "ssh," "halt," "destroy" or "clear." 
+    required: false
     default: null
     aliases: ['command'] 
   box_name:
@@ -63,6 +65,7 @@ author: Rob Parrott
 
 VAGRANT_FILE = "./Vagrantfile"
 VAGRANT_DICT_FILE = "./Vagrantfile.json"
+VAGRANT_LOCKFILE = "./.vagrant-lock"
 
 VAGRANT_FILE_HEAD = "Vagrant::Config.run do |config|\n"
 VAGRANT_FILE_BOX_NAME = "  config.vm.box = \"%s\"\n"
@@ -87,6 +90,12 @@ import os.path
 import json
 
 try:
+    import lockfile
+except ImportError:
+    print "Python module lockfile is not installed. vagrant module may complain (harmlessly) when destroying instances. Consider installed."
+#    print "failed=True msg='python-vagrant required for this module'"
+    
+try:
     import vagrant
 except ImportError:
     print "failed=True msg='python-vagrant required for this module'"
@@ -97,51 +106,79 @@ class VagrantWrapper(object):
     def __init__(self):
 
         '''
-        Wrapper around the python-vagrant module for use with ansible
+        Wrapper around the python-vagrant module for use with ansible.
+        Note that Vagrant itself is non-thread safe, as is the python-vagrant lib, so we need to lock on basically all operations ...
         '''
-        
+        # Get a lock
+        try:
+            self.lock = lockfile.FileLock(VAGRANT_LOCKFILE)
+            self.lock.acquire()
+        except:
+            print "Could not get file lock ... module is not threadsafe. May be a bumpy ride ...."
+            
         # Initialize vagrant and state files
         self.vg = vagrant.Vagrant()
-        self._load_state()
-        self._write_vagrantfile()
-        self._save_state()
-        self.instances = {}
+        #self.instances = {}
+        
+        # operation will create a default data structure if none present
+        self._deserialize()  
+        self._serialize()
+        
+    def __del__(self):
+        "Clean up file locks"
+        try:
+            self.lock.release()
+        except: pass
         
     def prepare_box(self, box_name, box_path):
         """
         Given a specified name and URL, import a Vagrant "box" for use.
         """
+        changed = False
         if box_name == None:
             raise Exception("You must specify a box_name with a box_path for vagrant.")
         boxes = self.vg.box_list()
         if not box_name in boxes:
             self.vg.box_add(box_name, box_path)
+            changed = True
+            
+        return changed
              
     def up(self, box_name, vm_name=None, count=1, box_path=None):    
         """
         Fire up a given VM and name it, using vagrant's multi-VM mode.
         """
+        changed = False
         if vm_name == None: 
             vm_name = DEFAULT_VM_NAME
         
         if box_name == None:
             raise Exception("You must specify a box name for Vagrant.")
-        if box_path != None: self.prepare_box(box_name, box_path)
-
+        if box_path != None: 
+            changed = self.prepare_box(box_name, box_path)
+        
         for c in range(int(count)):
             
+            self._deserialize()
+            
             d = self._get_instance(vm_name,c)
-            d['box_name'] = box_name        
+            if not d.has_key('box_name'): d['box_name'] = box_name        
         
             # Save our changes and run
             inst_array = self._instances()[vm_name]
             inst_array[c] = d    
-            self._save_state()
-            self._write_vagrantfile()
-            self.vg.up(False, d['vagrant_name'])
             
+            self._serialize()
+            
+            # See if we need to fire it up ...
+            vgn = d['vagrant_name']
+            status = self.vg.status(vgn)
+            if status != 'running':
+                self.vg.up(False, d['vagrant_name'])
+                changed =True
+                
         ad = self._build_instance_array_for_ansible(vm_name)
-        return ad
+        return (changed, ad)
     
     def status(self, vm_name = None, n = -1):
         """
@@ -163,14 +200,7 @@ class VagrantWrapper(object):
                 stat_array.append(self.vg.status(vgn))
             statuses[vmn] = stat_array     
                     
-        return statuses
-        #if vm_name == None:
-        #    raise Exception("You must specify a vm_name for vagrant when requesting the status of an instance.")
-        
-        #inst = self._get_instance(vm_name, n)
-        #stat = self.vg.status(inst['vagrant_name'])
-
-        return statuses
+        return (False, statuses)
             
     def config(self, vm_name, n = -1):
         """
@@ -192,18 +222,13 @@ class VagrantWrapper(object):
                 conf_array.append(cnf)
             configs[vmn] = conf_array     
                             
-        return configs
-#        if vm_name == None:
-#            raise Exception("You must specify a vm_name for vagrant when requesting the config of an instance.")
-        
-#        inst = self._get_instance(vm_name, n)
-#        cnf = self.vg.conf(None, inst['vagrant_name'])
-#        return cnf
+        return (False, configs)
 
     def halt(self, vm_name = None, n=-1):
         """
         Shuts down a vm_name or all VMs.
         """
+        changed = False
         vm_names = []
         if vm_name != None: vm_names = [vm_name]
         else:
@@ -218,17 +243,21 @@ class VagrantWrapper(object):
             for inst in instance_array:
                 vgn = inst['vagrant_name']
                 if self.vg.status(vgn) == 'running':
-                    self.vg.halt(vgn) 
+                    self.vg.halt(vgn)
+                    changed = True
                 stat_array.append(self.vg.status(vgn))
             statuses[vmn] = stat_array
-        return statuses         
+            
+        return (changed, statuses)         
             
     def destroy(self, vm_name=None, n=-1):
         """
         Halt and remove data for a VM, or all VMs.
         """
         
-        self.halt(vm_name, n)       
+        self._deserialize()
+        
+        (changed, stats) = self.halt(vm_name, n)       
     
         self.vg.destroy(vm_name)
         if vm_name != None:
@@ -236,21 +265,24 @@ class VagrantWrapper(object):
         else:
             self.vg_data['instances'] = {}
             
-        self._save_state()
-        self._write_vagrantfile()
+        self._serialize()
+
+        changed = True
+        
+        return changed
         
     def clear(self, vm_name=None):
         """
         Halt and remove data for a VM, or all VMs. Also clear all state data
         """
-        self.vg.destroy(vm_name)
-
+        changed = self.vg.destroy(vm_name)
+        
         if os.path.isfile(VAGRANT_FILE):
             os.remove(VAGRANT_FILE)
         if os.path.isfile(VAGRANT_DICT_FILE):
             os.remove(VAGRANT_DICT_FILE)            
 
-                   
+        return changed           
 #
 # Helper Methods
 #
@@ -285,11 +317,26 @@ class VagrantWrapper(object):
         
         return d
             
-                 
+    
+    #
+    # Serialize/Deserialize current state to a JSON representation, and 
+    #  a file format for Vagrant.
+    #
+    # This is where we need to deal with file locking, since multiple threads/procs
+    #  may be trying to operate on the same files 
+    # 
+    def _serialize(self):
+        self._save_state()
+        self._write_vagrantfile()
+        
+    def _deserialize(self): self._load_state()
+        
+    
     #
     # Manage a JSON representation of vagrantfile for statefulness across invocations. 
     #
     def _load_state(self):
+        
         self.vg_data = dict(num_inst=0, instances = {})
         if os.path.isfile(VAGRANT_DICT_FILE):
             json_file=open(VAGRANT_DICT_FILE)
@@ -371,7 +418,8 @@ def main():
     
     module = AnsibleModule(
         argument_spec = dict(
-            cmd=dict(required=True, aliases = ['command']),
+            state=dict(),
+            cmd=dict(required=False, aliases = ['command']),
             box_name=dict(required=False, aliases = ['image']),
             box_path=dict(),
             vm_name=dict(),
@@ -379,6 +427,7 @@ def main():
        )
    )
     
+    state = module.params.get('state')
     cmd = module.params.get('cmd')
     box_name = module.params.get('box_name')
     box_path = module.params.get('box_path')
@@ -388,78 +437,97 @@ def main():
     count = module.params.get('count') 
 
     # Initialize vagrant
-    vg = VagrantWrapper()
+    vgw = VagrantWrapper()
     
     #
-    # Main command tree
+    # Check if we are being invoked under an idempotency idiom of "state=present" or "state=absent"
     #
     try:
-        if cmd == 'up':
+        if state != None:
             
-            if count == None: count = 1
-            insts = vg.up(box_name, vm_name, count, box_path)
-            module.exit_json(changed = True, instances = insts)
+            if state != 'present' and state != 'absent':
+                module.fail_json(msg = "State must be \"present\" or \"absent\" in vagrant module.")
+                 
+            if state == 'present':
+                changd, insts = vgw.up(box_name, vm_name, count, box_path)
+                module.exit_json(changed = changd, instances = insts)
+                 
+            if state == 'absent':
+                changd = vgw.halt(vm_name)    
+                module.exit_json(changed = changd, status = vgw.status(vm_name))
+                 
+                 
+        #
+        # Main command tree for old style invocation
+        #                     
+            
+        else:
 
-        elif cmd == 'status':
+            if cmd == 'up':
+            
+                if count == None: count = 1
+                (changd, insts) = vgw.up(box_name, vm_name, count, box_path)
+                module.exit_json(changed = changd, instances = insts)
+
+            elif cmd == 'status':
 
 #            if vm_name == None:
 #                module.fail_json(msg = "Error: you must specify a vm_name when calling status." )
                 
-            result = vg.status(vm_name)
-            module.exit_json(changed = False, status = result)
+                (changd, result) = vgw.status(vm_name)
+                module.exit_json(changed = changd, status = result)
 
-        elif cmd == "config" or cmd == "conf":
+            elif cmd == "config" or cmd == "conf":
             
-            if vm_name == None:
-                module.fail_json(msg = "Error: you must specify a vm_name when calling config." )
-            cnf = vg.config(vm_name)
-            module.exit_json(changed = False, config = cnf)
+                if vm_name == None:
+                    module.fail_json(msg = "Error: you must specify a vm_name when calling config." )
+                (changd, cnf) = vgw.config(vm_name)
+                module.exit_json(changed = changd, config = cnf)
 
-        elif cmd == 'ssh':
+            elif cmd == 'ssh':
             
-            if vm_name == None:
-                module.fail_json(msg = "Error: you must specify a vm_name when calling ssh." )             
+                if vm_name == None:
+                    module.fail_json(msg = "Error: you must specify a vm_name when calling ssh." )             
                             
-            cnf = vg.config(vm_name)
-            sshcmd = "ssh -i %s -p %s %s@%s" % (cnf["IdentityFile"], cnf["Port"], cnf["User"], cnf["HostName"])
-            sshmsg = "Execute the command \"vagrant ssh %s\"" % (vm_name)
-            module.exit_json(changed = False, msg = sshmsg, SshCommand = sshcmd)
+                (changd, cnf) = vgw.config(vm_name)
+                sshcmd = "ssh -i %s -p %s %s@%s" % (cnf["IdentityFile"], cnf["Port"], cnf["User"], cnf["HostName"])
+                sshmsg = "Execute the command \"vagrant ssh %s\"" % (vm_name)
+                module.exit_json(changed = changd, msg = sshmsg, SshCommand = sshcmd)
 
-        elif cmd == "load_key":
+#            elif cmd == "load_key":
+#                
+#                if vm_name == None:
+#                    module.fail_json(msg = "Error: you must specify a vm_name when calling load_key." )             
+#                            
+#                cnf = vg.config(vm_name)
+#                keyfile=cnf["IdentityFile"]
+#            
+#                # Get loaded keys ...
+#                loaded_keys = subprocess.check_output(["ssh-add", "-l"])
+#                module.exit_json(changed = True, msg = loaded_keys)
+#                     
+#                subprocess.call(["ssh-add", keyfile])
+#            
+#                module.exit_json(changed = True, msg = sshmsg, SshCommand = sshcmd)
             
-            if vm_name == None:
-                module.fail_json(msg = "Error: you must specify a vm_name when calling load_key." )             
-                            
-            cnf = vg.config(vm_name)
-            keyfile=cnf["IdentityFile"]
-            
-            # Get loaded keys ...
-            loaded_keys = subprocess.check_output(["ssh-add", "-l"])
-            module.exit_json(changed = True, msg = loaded_keys)
-            
-            
-            subprocess.call(["ssh-add", keyfile])
-            
-            module.exit_json(changed = True, msg = sshmsg, SshCommand = sshcmd)
-            
-        elif cmd == 'halt':
+            elif cmd == 'halt':
 
-            vg.halt(vm_name)
-            module.exit_json(changed = True, status = vg.status(vm_name))
+                (changd, stats) = vgw.halt(vm_name)
+                module.exit_json(changed = changd, status = stats)
 
-        elif cmd == 'destroy':
+            elif cmd == 'destroy':
 
-            vg.destroy(vm_name)    
-            module.exit_json(changed = True)
+                changd = vgw.destroy(vm_name)    
+                module.exit_json(changed = changd, status = vgw.status(vm_name))
             
-        elif cmd == 'clear':
+            elif cmd == 'clear':
             
-            vg.clear()          
-            module.exit_json(changed = True)
+                changd = vgw.clear()          
+                module.exit_json(changed = changd)
             
-        else:
+            else:
             
-            module.fail_json(msg = "Unknown vagrant subcommand: \"%s\"." % (cmd))
+                module.fail_json(msg = "Unknown vagrant subcommand: \"%s\"." % (cmd))
             
     except subprocess.CalledProcessError as e:     
         module.fail_json(msg = "Vagrant command failed: %s." % (e))

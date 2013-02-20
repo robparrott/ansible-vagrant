@@ -1,6 +1,6 @@
 ---
 #
-# This section fires up a set of guests dynamically using vagrant,
+# This section fires up a set of instances dynamically using vagrant,
 #  registers it in the inventory under 
 #  the group "vagrant_hosts"
 # then logs in and pokes around.
@@ -18,7 +18,7 @@
   tasks:
   - name: Fire up a set of vagrant instances to log into
     local_action: vagrant
-        command=up
+        state=present
         box_name=${box_name}
         box_path=${box_path}
         vm_name=${vm_name}
@@ -31,7 +31,7 @@
   
   - name: Host info ...
     action: debug
-            msg='${item.public_ip}:${item.port}' 
+            msg='${item.public_ip}${item.port}' 
     with_items: ${vagrant.instances}
       
   - name: Capture that host's contact info into the inventory (the hostname is a unique ID from Vagrant ... )
@@ -50,7 +50,8 @@
   user: vagrant
   vars:
     vm_name: frank
-  gather_facts: True
+  
+  gather_facts: False
              
   tasks:
   
@@ -63,13 +64,13 @@
   - name: Generate a ./blah_ansible.vars to check for hostvars
     action: template src=test-vagrant-hostinfo.j2 dest=/tmp/localhost_ansible.vars
     
-  - name: Take a look at the outputs ...  (Messy!)
-    action: command cat /tmp/localhost_ansible.vars
-          
-  - name: Shut them down ...
+#    
+# Shut them down 
+#
+  - name: Now shut them down ...
     local_action: vagrant 
                   state=absent 
                   vm_name='${vm_name}'
                   
   - name: Now clear it out ...
-    local_action: vagrant command=clear     
+    local_action: vagrant command=clear
