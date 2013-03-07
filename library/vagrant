@@ -456,10 +456,11 @@ def main():
     box_path = module.params.get('box_path')
     vm_name = module.params.get('vm_name')
     forward_ports = module.params.get('forward_ports')     
-#    if vm_name != None: 
-#        vm_name = vm_name.lower().replace("-","_")
+
     if forward_ports != None:
-        forward_ports=forward_ports.split(',')  
+        forward_ports=forward_ports.split(',')
+    if forward_ports == None: forward_ports=[]
+
     count = module.params.get('count') 
  
     # Initialize vagrant
@@ -475,6 +476,7 @@ def main():
                 module.fail_json(msg = "State must be \"present\" or \"absent\" in vagrant module.")
                  
             if state == 'present':
+               
                 changd, insts = vgw.up(box_name, vm_name, count, box_path, forward_ports)
                 module.exit_json(changed = changd, instances = insts)
                  
