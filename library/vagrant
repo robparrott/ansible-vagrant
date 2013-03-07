@@ -54,7 +54,11 @@ options:
     required: False
     default: 1
     aliases: []
-    
+  forward_ports:
+    description:
+      - comma separated list of ports to forward to the host
+    required: False
+    aliases: []    
   
 examples:
    - code: 'local_action: vagrant cmd=up box_name=lucid32 vm_name=webserver'
@@ -69,13 +73,15 @@ VAGRANT_LOCKFILE = "./.vagrant-lock"
 
 VAGRANT_FILE_HEAD = "Vagrant::Config.run do |config|\n"
 VAGRANT_FILE_BOX_NAME = "  config.vm.box = \"%s\"\n"
-VAGRANT_FILE_VM_STANZA = """
+VAGRANT_FILE_VM_STANZA_HEAD = """
   config.vm.define :%s do |%s_config|
     %s_config.vm.network :hostonly, "%s"
-    %s_config.vm.host_name = "%s"
     %s_config.vm.box = "%s"
-  end
 """
+VAGRANT_FILE_HOSTNAME_LINE     = "    %s_config.vm.host_name = \"%s\"\n"
+VAGRANT_FILE_PORT_FORWARD_LINE = "    %s_config.vm.forward_port %s, %s\n"  
+VAGRANT_FILE_VM_STANZA_TAIL="  end\n"
+
 VAGRANT_FILE_TAIL = "\nend\n"
 
 # If this is already a network on your machine, this may fail ... change it here.
@@ -153,7 +159,7 @@ class VagrantWrapper(object):
             
         return changed
              
-    def up(self, box_name, vm_name=None, count=1, box_path=None):    
+    def up(self, box_name, vm_name=None, count=1, box_path=None, ports=[]):    
         """
         Fire up a given VM and name it, using vagrant's multi-VM mode.
         """
@@ -172,7 +178,8 @@ class VagrantWrapper(object):
             
             d = self._get_instance(vm_name,c)
             if not d.has_key('box_name'): d['box_name'] = box_name        
-        
+            d['forward_ports'] = ports  
+            
             # Save our changes and run
             inst_array = self._instances()[vm_name]
             inst_array[c] = d    
@@ -317,8 +324,9 @@ class VagrantWrapper(object):
         d['n'] = n
         d['N'] = N
         d['name'] = vm_name
-        d['vagrant_name'] = "%s%d" % (vm_name,n)
+        d['vagrant_name'] = "%s%d" % (vm_name.replace("-","_"),n)
         d['internal_ip'] = VAGRANT_INT_IP % (255-N)
+        d['forward_ports'] = []
         self.vg_data['num_inst'] = N
         
         inst_array.append(d)
@@ -379,8 +387,13 @@ class VagrantWrapper(object):
                 name = d['vagrant_name']
                 ip = d['internal_ip']
                 box_name = d['box_name']
-                vfile.write(VAGRANT_FILE_VM_STANZA % 
-                            (name, name, name, ip, name, name, name, box_name) )
+                vfile.write(VAGRANT_FILE_VM_STANZA_HEAD % 
+                            (name, name, name, ip, name, box_name) )
+                vfile.write(VAGRANT_FILE_HOSTNAME_LINE  % (name, name.replace('_','-'))  )   
+                if d.has_key('forward_ports'):
+                    for p in d['forward_ports']:
+                        vfile.write(VAGRANT_FILE_PORT_FORWARD_LINE % (name,p,p) )
+                vfile.write(VAGRANT_FILE_VM_STANZA_TAIL)
   
         vfile.write(VAGRANT_FILE_TAIL)
         vfile.close()
@@ -432,6 +445,7 @@ def main():
             box_name=dict(required=False, aliases = ['image']),
             box_path=dict(),
             vm_name=dict(),
+            forward_ports=dict(),
             count = dict(default='1'), 
        )
    )
@@ -441,10 +455,13 @@ def main():
     box_name = module.params.get('box_name')
     box_path = module.params.get('box_path')
     vm_name = module.params.get('vm_name')
-    if vm_name != None: 
-        vm_name = vm_name.lower()
+    forward_ports = module.params.get('forward_ports')     
+#    if vm_name != None: 
+#        vm_name = vm_name.lower().replace("-","_")
+    if forward_ports != None:
+        forward_ports=forward_ports.split(',')  
     count = module.params.get('count') 
-
+ 
     # Initialize vagrant
     vgw = VagrantWrapper()
     
@@ -458,7 +475,7 @@ def main():
                 module.fail_json(msg = "State must be \"present\" or \"absent\" in vagrant module.")
                  
             if state == 'present':
-                changd, insts = vgw.up(box_name, vm_name, count, box_path)
+                changd, insts = vgw.up(box_name, vm_name, count, box_path, forward_ports)
                 module.exit_json(changed = changd, instances = insts)
                  
             if state == 'absent':
@@ -475,7 +492,7 @@ def main():
             if cmd == 'up':
             
                 if count == None: count = 1
-                (changd, insts) = vgw.up(box_name, vm_name, count, box_path)
+                (changd, insts) = vgw.up(box_name, vm_name, count, box_path, forward_ports)
                 module.exit_json(changed = changd, instances = insts)
 
             elif cmd == 'status':
