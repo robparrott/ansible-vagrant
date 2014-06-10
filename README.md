@@ -1,7 +1,7 @@
 	ansible-vagrant
 ===============
 
-A vagrant module for ansible, that lets you control vagrant VMs from an ansible playbook.
+A vagrant module for ansible, that lets you control vagrant VMs from an ansible playbook. (BLAH)
 
 ## Overview
 
