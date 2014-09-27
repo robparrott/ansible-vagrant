@@ -190,7 +190,7 @@ class VagrantWrapper(object):
             vgn = d['vagrant_name']
             status = self.vg.status(vgn)
             if status != 'running':
-                self.vg.up(False, d['vagrant_name'])
+                self.vg.up(False, vm_name=d['vagrant_name'])
                 changed =True
                 
         ad = self._build_instance_array_for_ansible(vm_name)
